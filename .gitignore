@@ -19,6 +19,7 @@ venv/
 *.pth
 *.pkl
 *.joblib
+*.keras
 
 # datasets (VERY IMPORTANT)
 data/
