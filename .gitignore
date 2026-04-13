@@ -1,0 +1,28 @@
+node_modules/
+.env
+venv/
+__pycache__/
+*.pyc
+uploads/
+dist/
+build/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# ML models (DO NOT PUSH)
+*.h5
+*.pt
+*.pth
+*.pkl
+*.joblib
+
+# datasets (VERY IMPORTANT)
+data/
+dataset/
+
+# misc
+*.log
