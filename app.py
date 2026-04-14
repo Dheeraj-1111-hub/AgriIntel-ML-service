@@ -8,21 +8,18 @@ import json
 
 app = Flask(__name__)
 
-# ============================================
-# CONFIG
-# ============================================
-
 MODEL_PATH = "plant_model.h5"
 MODEL_URL = "https://drive.google.com/uc?export=download&id=1u67A5wWdcu9b5PPdDvs6OufIecfY4diG"
 
+model = None  # ✅ GLOBAL MODEL
+
 # ============================================
-# DOWNLOAD MODEL (STREAM SAFE)
+# DOWNLOAD MODEL
 # ============================================
 
 def download_model():
     if not os.path.exists(MODEL_PATH):
         print("⬇️ Downloading model...")
-
         response = requests.get(MODEL_URL, stream=True)
 
         with open(MODEL_PATH, "wb") as f:
@@ -32,21 +29,25 @@ def download_model():
 
         print("✅ Model downloaded")
 
-download_model()
-
 # ============================================
-# LOAD MODEL (CRITICAL FIX)
+# LOAD MODEL (LAZY)
 # ============================================
 
-print("📦 Loading model...")
-model = tf.keras.models.load_model(MODEL_PATH, compile=False)  # ✅ FIX
-print("✅ Model loaded")
+def get_model():
+    global model
 
-# Warmup (avoids slow first request)
-print("🔥 Warming up model...")
-dummy = np.zeros((1, 224, 224, 3))
-model.predict(dummy)
-print("✅ Model ready")
+    if model is None:
+        download_model()
+
+        print("📦 Loading model...")
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+
+        print("🔥 Warming up model...")
+        dummy = np.zeros((1, 224, 224, 3))
+        model.predict(dummy)
+        print("✅ Model ready")
+
+    return model
 
 # ============================================
 # LOAD CLASSES
@@ -67,10 +68,12 @@ def normalize(text):
     return text.lower().replace("_", " ").strip()
 
 # ============================================
-# PREDICTION FUNCTION
+# PREDICTION
 # ============================================
 
 def predict(img, crop_type=None):
+    model = get_model()  # ✅ LAZY LOAD HERE
+
     img = img.resize((224, 224))
     img_array = np.array(img) / 255.0
     img_array = np.expand_dims(img_array, axis=0)
@@ -103,8 +106,12 @@ def predict(img, crop_type=None):
     return disease_name, best_conf
 
 # ============================================
-# API ROUTE
+# ROUTES
 # ============================================
+
+@app.route("/")
+def home():
+    return "ML Service Running ✅"
 
 @app.route("/predict", methods=["POST"])
 def predict_api():
@@ -129,15 +136,7 @@ def predict_api():
         return jsonify({"error": "Prediction failed"}), 500
 
 # ============================================
-# HEALTH CHECK (VERY IMPORTANT FOR RENDER)
-# ============================================
-
-@app.route("/")
-def home():
-    return "ML Service Running ✅"
-
-# ============================================
-# RUN (LOCAL ONLY)
+# LOCAL RUN
 # ============================================
 
 if __name__ == "__main__":
