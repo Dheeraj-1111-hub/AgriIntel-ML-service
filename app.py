@@ -1,5 +1,4 @@
 import os
-import requests
 from flask import Flask, request, jsonify
 import numpy as np
 from PIL import Image
@@ -9,31 +8,13 @@ import traceback
 
 app = Flask(__name__)
 
-MODEL_PATH = "plant_model.h5"
-MODEL_URL = "https://drive.google.com/uc?export=download&id=1u67A5wWdcu9b5PPdDvs6OufIecfY4diG"
+# ✅ USE YOUR NEW TRAINED MODEL
+MODEL_PATH = "plant_model.keras"
 
 model = None  # GLOBAL MODEL
 
 # ============================================
-# DOWNLOAD MODEL
-# ============================================
-
-def download_model():
-    if not os.path.exists(MODEL_PATH):
-        print("⬇️ Downloading model...")
-
-        response = requests.get(MODEL_URL, stream=True)
-
-        with open(MODEL_PATH, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-
-        print("✅ Model downloaded")
-
-
-# ============================================
-# LOAD MODEL (SAFE + LAZY)
+# LOAD MODEL (LAZY + SAFE)
 # ============================================
 
 def get_model():
@@ -41,12 +22,11 @@ def get_model():
 
     if model is None:
         try:
-            download_model()
-
             print("📦 Loading model...")
+
             model = tf.keras.models.load_model(
                 MODEL_PATH,
-                compile=False   # ✅ IMPORTANT FIX
+                compile=False
             )
 
             print("🔥 Warming up model...")
@@ -168,7 +148,7 @@ def predict_api():
         traceback.print_exc()
 
         return jsonify({
-            "error": str(e)   # ✅ REAL ERROR RETURNED
+            "error": str(e)
         }), 500
 
 
