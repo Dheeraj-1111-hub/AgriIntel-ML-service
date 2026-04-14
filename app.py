@@ -9,28 +9,40 @@ import json
 app = Flask(__name__)
 
 # ============================================
-# MODEL DOWNLOAD
+# CONFIG
 # ============================================
 
 MODEL_PATH = "plant_model.h5"
 MODEL_URL = "https://drive.google.com/uc?export=download&id=1u67A5wWdcu9b5PPdDvs6OufIecfY4diG"
 
+# ============================================
+# DOWNLOAD MODEL (STREAM SAFE)
+# ============================================
+
 def download_model():
     if not os.path.exists(MODEL_PATH):
         print("⬇️ Downloading model...")
-        response = requests.get(MODEL_URL)
+
+        response = requests.get(MODEL_URL, stream=True)
+
         with open(MODEL_PATH, "wb") as f:
-            f.write(response.content)
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+
         print("✅ Model downloaded")
 
 download_model()
 
 # ============================================
-# LOAD MODEL
+# LOAD MODEL (CRITICAL FIX)
 # ============================================
 
-model = tf.keras.models.load_model(MODEL_PATH)
+print("📦 Loading model...")
+model = tf.keras.models.load_model(MODEL_PATH, compile=False)  # ✅ FIX
+print("✅ Model loaded")
 
+# Warmup (avoids slow first request)
 print("🔥 Warming up model...")
 dummy = np.zeros((1, 224, 224, 3))
 model.predict(dummy)
@@ -55,7 +67,7 @@ def normalize(text):
     return text.lower().replace("_", " ").strip()
 
 # ============================================
-# PREDICTION
+# PREDICTION FUNCTION
 # ============================================
 
 def predict(img, crop_type=None):
@@ -63,7 +75,7 @@ def predict(img, crop_type=None):
     img_array = np.array(img) / 255.0
     img_array = np.expand_dims(img_array, axis=0)
 
-    predictions = model.predict(img_array)[0]
+    predictions = model.predict(img_array, verbose=0)[0]
     top_indices = predictions.argsort()[-5:][::-1]
 
     crop_type = normalize(crop_type)
@@ -91,7 +103,7 @@ def predict(img, crop_type=None):
     return disease_name, best_conf
 
 # ============================================
-# API
+# API ROUTE
 # ============================================
 
 @app.route("/predict", methods=["POST"])
@@ -117,7 +129,7 @@ def predict_api():
         return jsonify({"error": "Prediction failed"}), 500
 
 # ============================================
-# HEALTH CHECK (IMPORTANT)
+# HEALTH CHECK (VERY IMPORTANT FOR RENDER)
 # ============================================
 
 @app.route("/")
@@ -125,7 +137,7 @@ def home():
     return "ML Service Running ✅"
 
 # ============================================
-# RUN (RENDER FIX)
+# RUN (LOCAL ONLY)
 # ============================================
 
 if __name__ == "__main__":
