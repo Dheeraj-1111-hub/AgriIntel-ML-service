@@ -5,13 +5,14 @@ import numpy as np
 from PIL import Image
 import tensorflow as tf
 import json
+import traceback
 
 app = Flask(__name__)
 
 MODEL_PATH = "plant_model.h5"
 MODEL_URL = "https://drive.google.com/uc?export=download&id=1u67A5wWdcu9b5PPdDvs6OufIecfY4diG"
 
-model = None  # ✅ GLOBAL MODEL
+model = None  # GLOBAL MODEL
 
 # ============================================
 # DOWNLOAD MODEL
@@ -20,6 +21,7 @@ model = None  # ✅ GLOBAL MODEL
 def download_model():
     if not os.path.exists(MODEL_PATH):
         print("⬇️ Downloading model...")
+
         response = requests.get(MODEL_URL, stream=True)
 
         with open(MODEL_PATH, "wb") as f:
@@ -29,34 +31,52 @@ def download_model():
 
         print("✅ Model downloaded")
 
+
 # ============================================
-# LOAD MODEL (LAZY)
+# LOAD MODEL (SAFE + LAZY)
 # ============================================
 
 def get_model():
     global model
 
     if model is None:
-        download_model()
+        try:
+            download_model()
 
-        print("📦 Loading model...")
-        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+            print("📦 Loading model...")
+            model = tf.keras.models.load_model(
+                MODEL_PATH,
+                compile=False   # ✅ IMPORTANT FIX
+            )
 
-        print("🔥 Warming up model...")
-        dummy = np.zeros((1, 224, 224, 3))
-        model.predict(dummy)
-        print("✅ Model ready")
+            print("🔥 Warming up model...")
+            dummy = np.zeros((1, 224, 224, 3))
+            model.predict(dummy, verbose=0)
+
+            print("✅ Model ready")
+
+        except Exception as e:
+            print("❌ MODEL LOAD ERROR:")
+            traceback.print_exc()
+            model = None
 
     return model
+
 
 # ============================================
 # LOAD CLASSES
 # ============================================
 
-with open("classes.json", "r") as f:
-    class_indices = json.load(f)
+try:
+    with open("classes.json", "r") as f:
+        class_indices = json.load(f)
+    classes = {v: k for k, v in class_indices.items()}
+    print("✅ Classes loaded")
+except Exception as e:
+    print("❌ Failed to load classes.json")
+    traceback.print_exc()
+    classes = {}
 
-classes = {v: k for k, v in class_indices.items()}
 
 # ============================================
 # NORMALIZE
@@ -67,43 +87,54 @@ def normalize(text):
         return ""
     return text.lower().replace("_", " ").strip()
 
+
 # ============================================
 # PREDICTION
 # ============================================
 
 def predict(img, crop_type=None):
-    model = get_model()  # ✅ LAZY LOAD HERE
+    model = get_model()
 
-    img = img.resize((224, 224))
-    img_array = np.array(img) / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
+    if model is None:
+        return "Model not loaded", 0
 
-    predictions = model.predict(img_array, verbose=0)[0]
-    top_indices = predictions.argsort()[-5:][::-1]
+    try:
+        img = img.resize((224, 224))
+        img_array = np.array(img) / 255.0
+        img_array = np.expand_dims(img_array, axis=0)
 
-    crop_type = normalize(crop_type)
-    filtered = []
+        predictions = model.predict(img_array, verbose=0)[0]
+        top_indices = predictions.argsort()[-5:][::-1]
 
-    for i in top_indices:
-        class_name = classes[i]
-        confidence = float(predictions[i])
-        class_norm = normalize(class_name)
+        crop_type = normalize(crop_type)
+        filtered = []
 
-        if crop_type and crop_type in class_norm:
-            filtered.append((class_name, confidence))
+        for i in top_indices:
+            class_name = classes.get(i, "Unknown")
+            confidence = float(predictions[i])
+            class_norm = normalize(class_name)
 
-    if filtered:
-        best_class, best_conf = max(filtered, key=lambda x: x[1])
-    else:
-        best_class = classes[top_indices[0]]
-        best_conf = float(predictions[top_indices[0]])
+            if crop_type and crop_type in class_norm:
+                filtered.append((class_name, confidence))
 
-        if best_conf < 0.3:
-            return "Unknown", best_conf
+        if filtered:
+            best_class, best_conf = max(filtered, key=lambda x: x[1])
+        else:
+            best_class = classes.get(top_indices[0], "Unknown")
+            best_conf = float(predictions[top_indices[0]])
 
-    disease_name = best_class.replace("_", " ").title()
+            if best_conf < 0.3:
+                return "Unknown", best_conf
 
-    return disease_name, best_conf
+        disease_name = best_class.replace("_", " ").title()
+
+        return disease_name, best_conf
+
+    except Exception as e:
+        print("❌ PREDICTION ERROR:")
+        traceback.print_exc()
+        return "Prediction error", 0
+
 
 # ============================================
 # ROUTES
@@ -112,6 +143,7 @@ def predict(img, crop_type=None):
 @app.route("/")
 def home():
     return "ML Service Running ✅"
+
 
 @app.route("/predict", methods=["POST"])
 def predict_api():
@@ -132,11 +164,16 @@ def predict_api():
         })
 
     except Exception as e:
-        print("❌ Prediction Error:", str(e))
-        return jsonify({"error": "Prediction failed"}), 500
+        print("❌ API ERROR:")
+        traceback.print_exc()
+
+        return jsonify({
+            "error": str(e)   # ✅ REAL ERROR RETURNED
+        }), 500
+
 
 # ============================================
-# LOCAL RUN
+# RUN
 # ============================================
 
 if __name__ == "__main__":
